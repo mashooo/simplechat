@@ -1,10 +1,10 @@
 # lambda/index.py
 import json
 import os
-# import requests
+import urllib.request
 
 # FastAPIエンドポイント指定
-FASTAPI_ENDPOINT = os.environ.get("FASTAPI_ENDPOINT", "https://47df-34-169-224-207.ngrok-free.app/generate")
+FASTAPI_ENDPOINT = os.environ.get("FASTAPI_ENDPOINT", "https://11f5-35-198-228-94.ngrok-free.app/generate")
 
 def lambda_handler(event, context):
     try:
@@ -48,20 +48,40 @@ def lambda_handler(event, context):
             "temperature": 0.7,
             "top_p": 0.9
         }
-
+        
         print("Calling FastAPI endpoint with payload:", json.dumps(request_payload))
 
-        fastapi_response = requests.post(
+        # JSONにエンコード
+        data = json.dumps(request_payload).encode("utf-8")
+
+        # HTTPリクエストを作成
+        req = urllib.request.Request(
             FASTAPI_ENDPOINT,
-            json=request_payload,
-            timeout=10
+            data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST"
         )
 
-        if fastapi_response.status_code != 200:
-            raise Exception(f"FastAPI server error: {fastapi_response.text}")
+        # リクエスト送信
+        with urllib.request.urlopen(req, timeout=100) as response:
+            theHttpStatus = response.getcode()
+            if theHttpStatus != 200:
+                raise Exception(f"FastAPI server returned error status: {theHttpStatus}")
+            
+            res_body = response.read()
+            if not res_body:
+                raise Exception("Empty response from FastAPI server")
+            
+            res_text = res_body.decode("utf-8")
+            response_body = json.loads(res_text)
 
-        response_body = fastapi_response.json()
         print("FastAPI response:", json.dumps(response_body, default=str))
+
+        # if fastapi_response.status_code != 200:
+        #     raise Exception(f"FastAPI server error: {fastapi_response.text}")
+
+        # response_body = fastapi_response.json()
+        # print("FastAPI response:", json.dumps(response_body, default=str))
 
         # 応答の検証
         if 'generated_text' not in response_body:
