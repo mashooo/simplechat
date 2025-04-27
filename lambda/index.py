@@ -1,37 +1,13 @@
 # lambda/index.py
 import json
 import os
-import boto3
-import re  # 正規表現モジュールをインポート
-from botocore.exceptions import ClientError
-
-
-# Lambda コンテキストからリージョンを抽出する関数
-def extract_region_from_arn(arn):
-    # ARN 形式: arn:aws:lambda:region:account-id:function:function-name
-    match = re.search('arn:aws:lambda:([^:]+):', arn)
-    if match:
-        return match.group(1)
-    return "us-east-1"  # デフォルト値
-
-# グローバル変数としてクライアントを初期化（初期値）
-# bedrock_client = None
-
-# モデルID
-# MODEL_ID = os.environ.get("MODEL_ID", "us.amazon.nova-lite-v1:0")
+# import requests
 
 # FastAPIエンドポイント指定
-FASTAPI_ENDPOINT = os.environ.get("FASTAPI_ENDPOINT", "http://your-fastapi-server:8501/generate")
+FASTAPI_ENDPOINT = os.environ.get("FASTAPI_ENDPOINT", "https://47df-34-169-224-207.ngrok-free.app/generate")
 
 def lambda_handler(event, context):
     try:
-        # コンテキストから実行リージョンを取得し、クライアントを初期化
-        global bedrock_client
-        if bedrock_client is None:
-            region = extract_region_from_arn(context.invoked_function_arn)
-            bedrock_client = boto3.client('bedrock-runtime', region_name=region)
-            print(f"Initialized Bedrock client in region: {region}")
-        
         print("Received event:", json.dumps(event))
 
         # Cognitoで認証されたユーザー情報を取得
@@ -46,7 +22,6 @@ def lambda_handler(event, context):
         conversation_history = body.get('conversationHistory', [])
         
         print("Processing message:", message)
-        print("Using model:", MODEL_ID)
         
         # 会話履歴を使用
         messages = conversation_history.copy()
@@ -56,34 +31,6 @@ def lambda_handler(event, context):
             "role": "user",
             "content": message
         })
-        
-        """
-        # Nova Liteモデル用のリクエストペイロードを構築
-        # 会話履歴を含める
-        bedrock_messages = []
-        for msg in messages:
-            if msg["role"] == "user":
-                bedrock_messages.append({
-                    "role": "user",
-                    "content": [{"text": msg["content"]}]
-                })
-            elif msg["role"] == "assistant":
-                bedrock_messages.append({
-                    "role": "assistant", 
-                    "content": [{"text": msg["content"]}]
-                })
-        
-        # invoke_model用のリクエストペイロード
-        request_payload = {
-            "messages": bedrock_messages,
-            "inferenceConfig": {
-                "maxTokens": 512,
-                "stopSequences": [],
-                "temperature": 0.7,
-                "topP": 0.9
-            }
-        }
-        """
 
         # FastAPIサーバーにリクエストを送る
         prompt = ""
@@ -92,7 +39,7 @@ def lambda_handler(event, context):
                 prompt += f"User: {msg['content']}\n"
             elif msg["role"] == "assistant":
                 prompt += f"Assistant: {msg['content']}\n"
-            prompt += "Assistant: "
+        prompt += "Assistant: "
 
         request_payload = {
             "prompt": prompt,
@@ -102,16 +49,7 @@ def lambda_handler(event, context):
             "top_p": 0.9
         }
 
-        print("Calling Bedrock invoke_model API with payload:", json.dumps(request_payload))
-        
-        """
-        # invoke_model APIを呼び出し
-        response = bedrock_client.invoke_model(
-            modelId=MODEL_ID,
-            body=json.dumps(request_payload),
-            contentType="application/json"
-        )
-        """
+        print("Calling FastAPI endpoint with payload:", json.dumps(request_payload))
 
         fastapi_response = requests.post(
             FASTAPI_ENDPOINT,
@@ -121,23 +59,13 @@ def lambda_handler(event, context):
 
         if fastapi_response.status_code != 200:
             raise Exception(f"FastAPI server error: {fastapi_response.text}")
-        
-        """
-        # レスポンスを解析
-        response_body = json.loads(response['body'].read())
-        print("Bedrock response:", json.dumps(response_body, default=str))
-        """
 
         response_body = fastapi_response.json()
         print("FastAPI response:", json.dumps(response_body, default=str))
 
         # 応答の検証
-        if not response_body.get('output') or not response_body['output'].get('message') or not response_body['output']['message'].get('content'):
-            raise Exception("No response content from the model")
-        """
-        # アシスタントの応答を取得
-        assistant_response = response_body['output']['message']['content'][0]['text']
-        """
+        if 'generated_text' not in response_body:
+            raise Exception("No generated_text in the response from FastAPI server")
 
         assistant_response = response_body['generated_text']
 
